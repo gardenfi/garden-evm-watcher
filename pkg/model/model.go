@@ -16,14 +16,14 @@ type Strategy struct {
 	DestChainAddress   string   `gorm:"type:text;not null"`
 	SourceChain        string   `gorm:"type:text;not null"`
 	DestChain          string   `gorm:"type:text;not null"`
-	SourceAsset        string   `gorm:"type:text;not null"`     // whitelisted source assets, nil means allowing any asset
-	DestAsset          string   `gorm:"type:text;not null"`     // whitelisted destination assets, nil means allowing any asset
-	Makers             []string `gorm:"type:text[]"`            // whitelisted makers, nil means allowing any maker
-	MinAmount          BigInt   `gorm:"type:decimal;not null"`  // minimum amount
-	MaxAmount          BigInt   `gorm:"type:decimal;default:0"` // maximum amount
-	MinSourceTimeLock  uint64   `gorm:"type:integer;not null"`  // minimum time lock
-	MinPrice           float64  `gorm:"type:real;not null"`     // minimum price
-	Fee                uint64   `gorm:"type:integer;not null"`  // fee in basis points
+	SourceAsset        string   `gorm:"type:text;not null"`       // whitelisted source assets, nil means allowing any asset
+	DestAsset          string   `gorm:"type:text;not null"`       // whitelisted destination assets, nil means allowing any asset
+	Makers             []string `gorm:"type:text[]"`              // whitelisted makers, nil means allowing any maker
+	MinAmount          BigInt   `gorm:"type:decimal;not null"`    // minimum amount
+	MaxAmount          BigInt   `gorm:"type:decimal" default:"0"` // maximum amount
+	MinSourceTimeLock  uint64   `gorm:"type:integer;not null"`    // minimum time lock
+	MinPrice           float64  `gorm:"type:real;not null"`       // minimum price
+	Fee                uint64   `gorm:"type:integer;not null"`    // fee in basis points
 }
 
 type CreateOrder struct {
@@ -88,12 +88,9 @@ type Swap struct {
 	InitiateTxHash      string `gorm:"type:text"`
 	RedeemTxHash        string `gorm:"type:text"`
 	RefundTxHash        string `gorm:"type:text"`
-	InitiatedAt         BigInt `gorm:"type:decimal;default:0"`
-	InitiateBlockNumber BigInt `gorm:"type:decimal;default:0"`
-	RedeemedAt          BigInt `gorm:"type:decimal;default:0"`
-	RedeemBlockNumber   BigInt `gorm:"type:decimal;default:0"`
-	RefundedAt          BigInt `gorm:"type:decimal;default:0"`
-	RefundBlockNumber   BigInt `gorm:"type:decimal;default:0"`
+	InitiateBlockNumber BigInt `gorm:"type:decimal" default:"0"`
+	RedeemBlockNumber   BigInt `gorm:"type:decimal" default:"0"`
+	RefundBlockNumber   BigInt `gorm:"type:decimal" default:"0"`
 }
 
 type BigInt struct {

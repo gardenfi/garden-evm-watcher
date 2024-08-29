@@ -2,22 +2,32 @@ package watcher_test
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/catalogfi/blockchain/evm/bindings/contracts/htlc/gardenhtlc"
-	"github.com/catalogfi/blockchain/evm/bindings/openzeppelin/contracts/token/ERC20/erc20"
+	"github.com/catalogfi/garden-evm-watcher/pkg/bindings"
+	htlcConfig "github.com/catalogfi/garden-evm-watcher/pkg/handlers/htlc"
+	"github.com/catalogfi/garden-evm-watcher/pkg/model"
+	"github.com/catalogfi/garden-evm-watcher/pkg/store"
 	"github.com/catalogfi/garden-evm-watcher/pkg/watcher"
+	"github.com/ory/dockertest/v3"
+	"github.com/ory/dockertest/v3/docker"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/ethclient/simulated"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -25,100 +35,292 @@ import (
 )
 
 func TestWatcher(t *testing.T) {
-	// Set up test environment
-	logger := zaptest.NewLogger(t)
+	logger, sugar := setupLogger(t)
+	defer logger.Sync()
 
-	
+	client := setupEthClient(t)
+	transactor, bobAddress := setupAccounts(t, client)
 
-	// Deploy token contract (for simplicity, we'll use a dummy token)
-	tokenAddress, _, token, err := erc20.DeployERC20
+	tokenAddr, token := deployTestERC20(t, client, transactor, sugar)
+	htlcAddress, htlc := deployGardenHTLC(t, client, transactor, tokenAddr, sugar)
 
-	// Deploy GardenHTLC contract
-	htlcAddress, _, htlc, err := gardenhtlc.DeployGardenHTLC(auth, simulatedClient, tokenAddress, "GardenHTLC", "v1")
-	require.NoError(t, err)
+	approveTokens(t, client, transactor, token, htlcAddress, sugar)
 
-	// Approve tokens for HTLC contract
-	_, err = token.Approve(auth, htlcAddress, big.NewInt(1000000))
-	require.NoError(t, err)
+	w := setupWatcher(t, client, htlcAddress, logger)
 
-	// Parse ABI
-	parsedABI, err := abi.JSON(strings.NewReader(gardenhtlc.GardenHTLCMetaData.ABI))
-	require.NoError(t, err)
+	watcherCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Create contract config
-	contractConfig, err := watcher.NewContractConfig(htlcAddress, parsedABI, map[string]watcher.EventHandler{
-		"Initiated": logHandler(logger, "Initiated"),
-		"Redeemed":  logHandler(logger, "Redeemed"),
-		"Refunded":  logHandler(logger, "Refunded"),
+	pgDB, cleanup := SetupTestDB(t)
+	defer cleanup()
+
+	db := store.NewStore(pgDB)
+
+	ctx := store.ContextWithStore(watcherCtx, db)
+
+	sugar.Info("Starting watcher")
+	err := w.Start(ctx)
+	assert.NoError(t, err)
+
+	testInitiateAndRedeem(t, client, transactor, htlc, bobAddress, sugar)
+	testInitiateAndRefund(t, client, transactor, htlc, bobAddress, sugar)
+
+	sugar.Info("Test completed, stopping watcher")
+	w.Stop()
+	sugar.Info("Test finished")
+}
+
+func SetupTestDB(t *testing.T) (*gorm.DB, func()) {
+	pool, err := dockertest.NewPool("")
+	if err != nil {
+		t.Fatalf("Could not connect to docker: %s", err)
+	}
+
+	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
+		Repository: "postgres",
+		Tag:        "15",
+		Env: []string{
+			"POSTGRES_PASSWORD=secret",
+			"POSTGRES_DB=testdb",
+		},
+	}, func(config *docker.HostConfig) {
+		config.AutoRemove = true
+		config.RestartPolicy = docker.RestartPolicy{
+			Name: "no",
+		}
 	})
+	if err != nil {
+		t.Fatalf("Could not start resource: %s", err)
+	}
+
+	hostAndPort := resource.GetHostPort("5432/tcp")
+	databaseUrl := fmt.Sprintf("postgres://postgres:secret@%s/testdb?sslmode=disable", hostAndPort)
+
+	var db *gorm.DB
+	if err = pool.Retry(func() error {
+		var err error
+		db, err = gorm.Open(postgres.Open(databaseUrl), &gorm.Config{})
+		if err != nil {
+			return err
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			return err
+		}
+		return sqlDB.Ping()
+	}); err != nil {
+		t.Fatalf("Could not connect to docker: %s", err)
+	}
+
+	// Migrate your schema
+	err = db.AutoMigrate(
+		&model.CreateOrder{},
+		&model.FillOrder{},
+		&model.Swap{},
+		&model.MatchedOrder{},
+		&model.Strategy{},
+	) // Add all your models here
+	if err != nil {
+		t.Fatalf("failed to migrate database: %v", err)
+	}
+
+	cleanup := func() {
+		t.Log("Cleaning up the test database")
+		sqlDB, err := db.DB()
+		if err != nil {
+			t.Logf("Error getting database instance: %v", err)
+		} else {
+			sqlDB.Close()
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err = resource.Expire(1) // This will stop and remove the container
+		if err != nil {
+			t.Logf("Could not expire the resource: %s", err)
+		}
+
+		if err := pool.Purge(resource); err != nil {
+			t.Logf("Could not purge resource: %s", err)
+		}
+
+		expectedErr := &docker.NoSuchContainer{ID: resource.Container.ID}
+		// Wait for the container to actually be removed
+		if err := pool.Client.RemoveContainer(docker.RemoveContainerOptions{
+			ID:      resource.Container.ID,
+			Force:   true,
+			Context: ctx,
+		}); err.Error() == expectedErr.Error() {
+			t.Logf("Container successfully removed")
+		} else if err != nil {
+			t.Logf("Error removing container: %v", err)
+		}
+	}
+
+	return db, cleanup
+}
+
+func setupLogger(t *testing.T) (*zap.Logger, *zap.SugaredLogger) {
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	sugar := zaptest.NewLogger(t).Sugar()
+	return logger, sugar
+}
+
+func setupEthClient(t *testing.T) *ethclient.Client {
+	url := os.Getenv("ETH_URL")
+	client, err := ethclient.Dial(url)
+	require.NoError(t, err)
+	return client
+}
+
+func setupAccounts(t *testing.T, client *ethclient.Client) (*bind.TransactOpts, common.Address) {
+	chainID, err := client.ChainID(context.Background())
 	require.NoError(t, err)
 
-	// Create watcher config
+	key := getPrivateKey(t, "ETH_KEY_1")
+	keyBob := getPrivateKey(t, "ETH_KEY_2")
+
+	transactor, err := bind.NewKeyedTransactorWithChainID(key, chainID)
+	require.NoError(t, err)
+
+	bobAddress := crypto.PubkeyToAddress(keyBob.PublicKey)
+
+	return transactor, bobAddress
+}
+
+func getPrivateKey(t *testing.T, envVar string) *ecdsa.PrivateKey {
+	keyStr := strings.TrimPrefix(os.Getenv(envVar), "0x")
+	keyBytes, err := hex.DecodeString(keyStr)
+	require.NoError(t, err)
+	key, err := crypto.ToECDSA(keyBytes)
+	require.NoError(t, err)
+	return key
+}
+
+func deployTestERC20(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, sugar *zap.SugaredLogger) (common.Address, *bindings.TestERC20) {
+	sugar.Info("Deploying TestERC20 token")
+	tokenAddr, tx, token, err := bindings.DeployTestERC20(transactor, client)
+	require.NoError(t, err)
+	sugar.Infof("TestERC20 deployment transaction sent: %s", tx.Hash().Hex())
+
+	_, err = bind.WaitMined(context.Background(), client, tx)
+	require.NoError(t, err)
+	sugar.Infof("TestERC20 token deployed at: %s", tokenAddr.Hex())
+
+	return tokenAddr, token
+}
+
+func deployGardenHTLC(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, tokenAddr common.Address, sugar *zap.SugaredLogger) (common.Address, *gardenhtlc.GardenHTLC) {
+	sugar.Info("Deploying GardenHTLC contract")
+	htlcAddress, tx, htlc, err := gardenhtlc.DeployGardenHTLC(transactor, client, tokenAddr, "GardenHtlc", "V1")
+	require.NoError(t, err)
+	sugar.Infof("GardenHTLC deployment transaction sent: %s", tx.Hash().Hex())
+
+	_, err = bind.WaitMined(context.Background(), client, tx)
+	require.NoError(t, err)
+	sugar.Infof("GardenHTLC contract deployed at: %s", htlcAddress.Hex())
+
+	return htlcAddress, htlc
+}
+
+func approveTokens(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, token *bindings.TestERC20, htlcAddress common.Address, sugar *zap.SugaredLogger) {
+	sugar.Info("Approving tokens for HTLC contract")
+	tx, err := token.Approve(transactor, htlcAddress, big.NewInt(1000000))
+	require.NoError(t, err)
+	sugar.Infof("Approval transaction sent: %s", tx.Hash().Hex())
+
+	_, err = bind.WaitMined(context.Background(), client, tx)
+	require.NoError(t, err)
+	sugar.Info("Token approval completed")
+}
+
+func setupWatcher(t *testing.T, client *ethclient.Client, htlcAddress common.Address, logger *zap.Logger) *watcher.Watcher {
+	contractConfig, err := htlcConfig.HTLCConfig(htlcAddress, client)
+	require.NoError(t, err)
+
 	config := watcher.WatcherConfig{
-		EthClient:       (*ethclient.Client)(simulatedClient),
+		EthClient:       client,
 		Contracts:       []watcher.ContractConfig{contractConfig},
 		MaxBlockSpan:    1000,
 		PollingInterval: 100 * time.Millisecond,
 		Logger:          logger,
-		WorkerCount:     1,
+		WorkerCount:     10,
 		QueueSize:       100,
+		StartBlock:      0,
 	}
 
-	// Create and start watcher
 	w, err := watcher.NewWatcher(config)
 	require.NoError(t, err)
+	return w
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	go func() {
-		err := w.Start(ctx)
-		assert.NoError(t, err)
-	}()
-
-	// Perform HTLC operations
-	secretHash := [32]byte{1, 2, 3}
-	secret := []byte("secret")
-	timelock := big.NewInt(time.Now().Add(1 * time.Hour).Unix())
+func testInitiateAndRedeem(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, htlc *gardenhtlc.GardenHTLC, bobAddress common.Address, sugar *zap.SugaredLogger) {
+	secret := randomSecret()
+	secretHash := sha256.Sum256(secret)
+	timelock := big.NewInt(1)
 	amount := big.NewInt(1000)
 
-	// Initiate
-	tx, err := htlc.Initiate(auth, auth.From, timelock, amount, secretHash)
+	sugar.Info("Initiating first HTLC")
+	tx, err := htlc.Initiate(transactor, bobAddress, timelock, amount, secretHash)
 	require.NoError(t, err)
+	sugar.Infof("Initiate transaction sent: %s", tx.Hash().Hex())
 
-	receipt, err := simulatedClient.TransactionReceipt(context.Background(), tx.Hash())
+	receipt, err := bind.WaitMined(context.Background(), client, tx)
 	require.NoError(t, err)
+	sugar.Info("Initiate transaction mined")
+
 	orderID := receipt.Logs[0].Topics[1]
+	sugar.Infof("HTLC initiated with orderID: %s", orderID.Hex())
 
-	// Redeem
-	_, err = htlc.Redeem(auth, orderID, secret)
+	sugar.Info("Redeeming HTLC")
+	tx, err = htlc.Redeem(transactor, orderID, secret)
 	require.NoError(t, err)
+	sugar.Infof("Redeem transaction sent: %s", tx.Hash().Hex())
 
-	// Create a new order for refund
-	timelock = big.NewInt(time.Now().Add(-1 * time.Hour).Unix())
-	tx, err = htlc.Initiate(auth, auth.From, timelock, amount, secretHash)
+	_, err = bind.WaitMined(context.Background(), client, tx)
 	require.NoError(t, err)
+	sugar.Info("Redeem transaction mined")
+}
 
-	receipt, err = simulatedClient.TransactionReceipt(context.Background(), tx.Hash())
+func testInitiateAndRefund(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, htlc *gardenhtlc.GardenHTLC, bobAddress common.Address, sugar *zap.SugaredLogger) {
+	secret := randomSecret()
+	secretHash := sha256.Sum256(secret)
+	timelock := big.NewInt(1)
+	amount := big.NewInt(1000)
+
+	sugar.Info("Initiating second HTLC (for refund)")
+	tx, err := htlc.Initiate(transactor, bobAddress, timelock, amount, secretHash)
 	require.NoError(t, err)
+	sugar.Infof("Second initiate transaction sent: %s", tx.Hash().Hex())
+
+	receipt, err := bind.WaitMined(context.Background(), client, tx)
+	require.NoError(t, err)
+	sugar.Info("Second initiate transaction mined")
+
 	refundOrderID := receipt.Logs[0].Topics[1]
+	sugar.Infof("Second HTLC initiated with orderID: %s", refundOrderID.Hex())
 
-	// Refund
-	_, err = htlc.Refund(auth, refundOrderID)
+	// Mine a new block
+	err = client.Client().Call(nil, "evm_mine")
 	require.NoError(t, err)
 
-	// Wait for events to be processed
-	time.Sleep(1 * time.Second)
+	sugar.Info("Refunding HTLC")
+	tx, err = htlc.Refund(transactor, refundOrderID)
+	require.NoError(t, err)
+	sugar.Infof("Refund transaction sent: %s", tx.Hash().Hex())
 
-	// Add assertions here to verify that events were properly handled
-	// For example, you could check logs or use a mock logger to verify that the correct events were logged
+	_, err = bind.WaitMined(context.Background(), client, tx)
+	require.NoError(t, err)
+	sugar.Info("Refund transaction mined")
 }
 
-func logHandler(logger *zap.Logger, eventName string) watcher.EventHandler {
-	return func(log types.Log) error {
-		logger.Info("Event handled", zap.String("event", eventName), zap.Any("log", log))
-		return nil
+func randomSecret() []byte {
+	secret := [32]byte{}
+	_, err := rand.Read(secret[:])
+	if err != nil {
+		panic(err)
 	}
+	return secret[:]
 }
-
-

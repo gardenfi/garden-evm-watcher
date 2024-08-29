@@ -16,7 +16,7 @@ import (
 )
 
 // EventHandler is a function type that handles an event
-type EventHandler func(event types.Log) error
+type EventHandler func(ctx context.Context, event types.Log) error
 
 // ContractConfig represents the configuration for a single contract to watch
 type ContractConfig struct {
@@ -48,6 +48,7 @@ type WatcherConfig struct {
 	MaxBlockSpan    uint64
 	PollingInterval time.Duration
 	Logger          *zap.Logger
+	StartBlock      uint64
 	WorkerCount     int
 	QueueSize       int
 }
@@ -60,10 +61,11 @@ type EventJob struct {
 
 type Watcher struct {
 	config            WatcherConfig
-	startBlock        uint64
 	currentBlock      uint64
+	quit              chan struct{}
 	mu                *sync.Mutex
 	jobQueue          chan EventJob
+	watcherWg         *sync.WaitGroup
 	workerWg          *sync.WaitGroup
 	addresses         []common.Address
 	topics            []common.Hash
@@ -90,6 +92,8 @@ func NewWatcher(config WatcherConfig) (*Watcher, error) {
 		mu:                new(sync.Mutex),
 		jobQueue:          make(chan EventJob, config.QueueSize),
 		workerWg:          new(sync.WaitGroup),
+		quit:              make(chan struct{}),
+		watcherWg:         new(sync.WaitGroup),
 		addressToHandlers: make(map[common.Address]map[common.Hash]EventHandler),
 	}
 
@@ -119,31 +123,54 @@ func (w *Watcher) Start(ctx context.Context) error {
 		go w.worker(ctx)
 	}
 
-	// Get the current block number
-	latestBlock, err := w.config.EthClient.BlockNumber(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get latest block number: %w", err)
-	}
+	w.currentBlock = w.config.StartBlock
 
-	w.startBlock = latestBlock
-	w.currentBlock = latestBlock
+	// Start the watcher
+	w.watcherWg.Add(1)
+	w.start(ctx)
 
+	return nil
+}
+
+func (w *Watcher) start(ctx context.Context) {
 	ticker := time.NewTicker(w.config.PollingInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			close(w.jobQueue)
-			w.workerWg.Wait()
-			w.config.Logger.Info("Watcher service stopped")
-			return nil
-		case <-ticker.C:
-			if err := w.pollEvents(ctx); err != nil {
-				w.config.Logger.Error("Error polling events", zap.Error(err))
+	go func() {
+		defer ticker.Stop()
+		defer w.watcherWg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				close(w.jobQueue)
+				w.workerWg.Wait()
+				w.config.Logger.Info("Watcher service stopped")
+				return
+			case <-ticker.C:
+				if err := w.pollEvents(ctx); err != nil {
+					if err == context.Canceled {
+						return
+					}
+					w.config.Logger.Error("Error polling events", zap.Error(err))
+				}
+			case <-w.quit:
+				return
 			}
 		}
+	}()
+}
+
+func (w *Watcher) Stop() error {
+	if w.quit == nil {
+		return fmt.Errorf("watcher already stopped")
 	}
+
+	w.config.Logger.Info("stopping watcher")
+	close(w.quit)
+
+	w.config.Logger.Info("waiting for watcher to stop")
+	w.watcherWg.Wait()
+
+	w.quit = nil
+	return nil
 }
 
 func (w *Watcher) worker(ctx context.Context) {
@@ -157,7 +184,10 @@ func (w *Watcher) worker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err := job.Handler(job.Event); err != nil {
+			if err := job.Handler(ctx, job.Event); err != nil {
+				if err == context.Canceled {
+					return
+				}
 				w.config.Logger.Error("Error handling event", zap.Error(err), zap.String("eventID", job.Event.Topics[0].Hex()))
 			}
 		}
@@ -196,24 +226,11 @@ func (w *Watcher) pollEvents(ctx context.Context) error {
 }
 
 func (w *Watcher) processAllContractEvents(ctx context.Context, fromBlock, toBlock uint64) error {
-	var addresses []common.Address
-	var topics [][]common.Hash
-	addressToHandlers := make(map[common.Address]map[common.Hash]EventHandler)
-
-	for _, contract := range w.config.Contracts {
-		addresses = append(addresses, contract.Address)
-		addressToHandlers[contract.Address] = contract.EventHandlers
-
-		for eventID := range contract.EventHandlers {
-			topics = append(topics, []common.Hash{eventID})
-		}
-	}
-
 	query := ethereum.FilterQuery{
 		FromBlock: big.NewInt(int64(fromBlock)),
 		ToBlock:   big.NewInt(int64(toBlock)),
-		Addresses: addresses,
-		Topics:    topics,
+		Addresses: w.addresses,
+		Topics:    [][]common.Hash{w.topics},
 	}
 
 	logs, err := w.config.EthClient.FilterLogs(ctx, query)
@@ -221,11 +238,15 @@ func (w *Watcher) processAllContractEvents(ctx context.Context, fromBlock, toBlo
 		return fmt.Errorf("failed to filter logs: %w", err)
 	}
 
+	w.config.Logger.Info("Found logs", zap.Int("count", len(logs)))
+
 	for _, log := range logs {
-		if handlers, ok := addressToHandlers[log.Address]; ok {
+		if handlers, ok := w.addressToHandlers[log.Address]; ok {
 			if handler, ok := handlers[log.Topics[0]]; ok {
 				select {
 				case w.jobQueue <- EventJob{Event: log, Handler: handler}:
+				case <-ctx.Done():
+					return ctx.Err()
 				default:
 					w.config.Logger.Warn("Job queue is full, dropping event",
 						zap.String("contractAddress", log.Address.Hex()),
