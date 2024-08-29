@@ -1,4 +1,4 @@
-package watcher_test
+package htlc_test
 
 import (
 	"context"
