@@ -34,9 +34,13 @@ func ContextWithStore(ctx context.Context, store *Store) context.Context {
 	return context.WithValue(ctx, storeKey, store)
 }
 
+func (s *Store) CreateSwap(swap *model.Swap) error {
+	return s.db.Create(swap).Error
+}
+
 func (s *Store) UpdateSwapInitiate(orderID string, initiateTxHash string, filledAmount, initiateBlockNumber *big.Int) error {
 	result := s.db.Model(&model.Swap{}).
-		Where("order_id = ?", orderID).
+		Where("swap_id = ?", orderID).
 		Updates(map[string]interface{}{
 			"initiate_tx_hash":      initiateTxHash,
 			"filled_amount":         filledAmount,
@@ -56,7 +60,7 @@ func (s *Store) UpdateSwapInitiate(orderID string, initiateTxHash string, filled
 
 func (s *Store) UpdateSwapRedeem(orderID string, redeemTxHash string, secret []byte, redeemBlockNumber *big.Int) error {
 	result := s.db.Model(&model.Swap{}).
-		Where("order_id = ?", orderID).
+		Where("swap_id = ?", orderID).
 		Updates(map[string]interface{}{
 			"redeem_tx_hash":      redeemTxHash,
 			"secret":              secret,
@@ -76,7 +80,7 @@ func (s *Store) UpdateSwapRedeem(orderID string, redeemTxHash string, secret []b
 
 func (s *Store) UpdateSwapRefund(orderID string, refundTxHash string, refundBlockNumber *big.Int) error {
 	result := s.db.Model(&model.Swap{}).
-		Where("order_id = ?", orderID).
+		Where("swap_id = ?", orderID).
 		Updates(map[string]interface{}{
 			"refund_tx_hash":      refundTxHash,
 			"refund_block_number": model.BigInt{Int: refundBlockNumber},
@@ -93,7 +97,7 @@ func (s *Store) UpdateSwapRefund(orderID string, refundTxHash string, refundBloc
 	return nil
 }
 
-func (s *Store) CreateCreateOrder(order *model.CreateOrder) error {
+func (s *Store) WriteCreateOrder(order *model.CreateOrder) error {
 	result := s.db.Create(order)
 	return result.Error
 }

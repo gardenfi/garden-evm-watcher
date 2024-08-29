@@ -3,8 +3,12 @@ package orderbook
 import (
 	"context"
 	"fmt"
+	"math/big"
 
+	"github.com/catalogfi/blockchain/evm"
 	"github.com/catalogfi/blockchain/evm/bindings/contracts/htlc/gardenhtlc"
+	"github.com/catalogfi/garden-evm-watcher/pkg/model"
+	"github.com/catalogfi/garden-evm-watcher/pkg/store"
 	"github.com/catalogfi/garden-evm-watcher/pkg/watcher"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -39,23 +43,34 @@ func constructHandlers() map[common.Hash]watcher.EventHandler {
 }
 
 func handleCreatedEvent(ctx context.Context, log types.Log) error {
-	event, err := orderBookAbi.Events["Created"].Inputs.UnpackValues(log.Data)
+	db, err := store.StoreFromContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to unpack event data: %v", err)
+		return err
+	}
+	createorder, err := evm.UnpackCreateOrder(log.Data)
+	if err != nil {
+		return fmt.Errorf("failed to unpack create order event: %v", err)
 	}
 
-	fmt.Printf("Created event: %v\n", event)
-
-	return nil
+	return db.WriteCreateOrder(&model.CreateOrder{
+		BlockNumber:                 model.BigInt{Int: new(big.Int).SetUint64(log.BlockNumber)},
+		SourceChain:                 createorder.SourceChain,
+		DestinationChain:            createorder.DestinationChain,
+		SourceAsset:                 createorder.SourceAsset,
+		DestinationAsset:            createorder.DestinationAsset,
+		InitiatorSourceAddress:      createorder.InitiatorSourceAddress,
+		InitiatorDestinationAddress: createorder.InitiatorDestinationAddress,
+		SourceAmount:                model.BigInt{Int: createorder.SourceAmount},
+		DestinationAmount:           model.BigInt{Int: createorder.DestinationAmount},
+		Fee:                         model.BigInt{Int: createorder.Fee},
+		Nonce:                       model.BigInt{Int: createorder.Nonce},
+		MinDestinationConfirmations: createorder.MinDestinationConfirmations.Uint64(),
+		TimeLock:                    createorder.TimeLock.Uint64(),
+		SecretHash:                  createorder.SecretHash[:],
+	})
 }
 
 func handleFilledEvent(ctx context.Context, log types.Log) error {
-	event, err := orderBookAbi.Events["Filled"].Inputs.UnpackValues(log.Data)
-	if err != nil {
-		return fmt.Errorf("failed to unpack event data: %v", err)
-	}
-
-	fmt.Printf("Filled event: %v\n", event)
-
+	fmt.Println("Received filled event")
 	return nil
 }

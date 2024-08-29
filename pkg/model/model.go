@@ -28,7 +28,8 @@ type Strategy struct {
 
 type CreateOrder struct {
 	gorm.Model
-	BlockTimestamp              BigInt `gorm:"type:decimal;not null"`
+	CreateID                    string `gorm:"type:text;not null"`
+	BlockNumber                 BigInt `gorm:"type:decimal;not null"`
 	SourceChain                 string `gorm:"type:text;not null"`
 	DestinationChain            string `gorm:"type:text;not null"`
 	SourceAsset                 string `gorm:"type:text;not null"`
@@ -40,12 +41,13 @@ type CreateOrder struct {
 	Fee                         BigInt `gorm:"type:decimal;not null"`
 	Nonce                       BigInt `gorm:"type:decimal;not null"`
 	MinDestinationConfirmations uint64 `gorm:"type:integer;not null"`
-	Timelock                    uint64 `gorm:"type:integer;not null"`
+	TimeLock                    uint64 `gorm:"type:integer;not null"`
 	SecretHash                  []byte `gorm:"type:bytea;not null"`
 }
 
 type FillOrder struct {
 	gorm.Model
+	FillID                     string `gorm:"type:text;not null"`
 	BlockTimestamp             BigInt `gorm:"type:decimal;not null"`
 	SourceChain                string `gorm:"type:text;not null"`
 	DestinationChain           string `gorm:"type:text;not null"`
@@ -58,7 +60,7 @@ type FillOrder struct {
 	Fee                        BigInt `gorm:"type:decimal;not null"`
 	Nonce                      BigInt `gorm:"type:decimal;not null"`
 	MinSourceConfirmations     uint64 `gorm:"type:integer;not null"`
-	Timelock                   uint64 `gorm:"type:integer;not null"`
+	TimeLock                   uint64 `gorm:"type:integer;not null"`
 }
 
 type MatchedOrder struct {
@@ -75,12 +77,12 @@ type MatchedOrder struct {
 
 type Swap struct {
 	gorm.Model
-	OrderID             string `gorm:"type:text;not null"`
+	SwapID              string `gorm:"type:text;not null"`
 	Chain               string `gorm:"type:text;not null"`
 	Asset               string `gorm:"type:text;not null"`
 	Initiator           string `gorm:"type:text;not null"`
 	Redeemer            string `gorm:"type:text;not null"`
-	Timelock            BigInt `gorm:"type:decimal;not null"`
+	TimeLock            BigInt `gorm:"type:decimal;not null"`
 	FilledAmount        BigInt `gorm:"type:decimal;not null"`
 	Amount              BigInt `gorm:"type:decimal;not null"`
 	SecretHash          []byte `gorm:"type:bytea;not null"`

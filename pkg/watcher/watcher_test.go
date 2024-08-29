@@ -39,7 +39,7 @@ func TestWatcher(t *testing.T) {
 	defer logger.Sync()
 
 	client := setupEthClient(t)
-	transactor, bobAddress := setupAccounts(t, client)
+	transactor, aliceAddress, bobAddress := setupAccounts(t, client)
 
 	tokenAddr, token := deployTestERC20(t, client, transactor, sugar)
 	htlcAddress, htlc := deployGardenHTLC(t, client, transactor, tokenAddr, sugar)
@@ -62,8 +62,8 @@ func TestWatcher(t *testing.T) {
 	err := w.Start(ctx)
 	assert.NoError(t, err)
 
-	testInitiateAndRedeem(t, client, transactor, htlc, bobAddress, sugar)
-	testInitiateAndRefund(t, client, transactor, htlc, bobAddress, sugar)
+	testInitiateAndRedeem(t, client, transactor, htlc, aliceAddress, bobAddress, sugar, db)
+	testInitiateAndRefund(t, client, transactor, htlc, aliceAddress, bobAddress, sugar, db)
 
 	sugar.Info("Test completed, stopping watcher")
 	w.Stop()
@@ -175,7 +175,7 @@ func setupEthClient(t *testing.T) *ethclient.Client {
 	return client
 }
 
-func setupAccounts(t *testing.T, client *ethclient.Client) (*bind.TransactOpts, common.Address) {
+func setupAccounts(t *testing.T, client *ethclient.Client) (*bind.TransactOpts, common.Address, common.Address) {
 	chainID, err := client.ChainID(context.Background())
 	require.NoError(t, err)
 
@@ -186,8 +186,9 @@ func setupAccounts(t *testing.T, client *ethclient.Client) (*bind.TransactOpts, 
 	require.NoError(t, err)
 
 	bobAddress := crypto.PubkeyToAddress(keyBob.PublicKey)
+	aliceAddress := crypto.PubkeyToAddress(key.PublicKey)
 
-	return transactor, bobAddress
+	return transactor, aliceAddress, bobAddress
 }
 
 func getPrivateKey(t *testing.T, envVar string) *ecdsa.PrivateKey {
@@ -256,11 +257,14 @@ func setupWatcher(t *testing.T, client *ethclient.Client, htlcAddress common.Add
 	return w
 }
 
-func testInitiateAndRedeem(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, htlc *gardenhtlc.GardenHTLC, bobAddress common.Address, sugar *zap.SugaredLogger) {
+func testInitiateAndRedeem(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, htlc *gardenhtlc.GardenHTLC, aliceAddress, bobAddress common.Address, sugar *zap.SugaredLogger, db *store.Store) {
 	secret := randomSecret()
 	secretHash := sha256.Sum256(secret)
 	timelock := big.NewInt(1)
 	amount := big.NewInt(1000)
+
+	swapID := sha256.Sum256(append(secretHash[:], common.BytesToHash(aliceAddress.Bytes()).Bytes()...))
+	createSwap(t, db, hex.EncodeToString(swapID[:]), amount, secretHash[:])
 
 	sugar.Info("Initiating first HTLC")
 	tx, err := htlc.Initiate(transactor, bobAddress, timelock, amount, secretHash)
@@ -284,11 +288,14 @@ func testInitiateAndRedeem(t *testing.T, client *ethclient.Client, transactor *b
 	sugar.Info("Redeem transaction mined")
 }
 
-func testInitiateAndRefund(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, htlc *gardenhtlc.GardenHTLC, bobAddress common.Address, sugar *zap.SugaredLogger) {
+func testInitiateAndRefund(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, htlc *gardenhtlc.GardenHTLC, aliceAddress, bobAddress common.Address, sugar *zap.SugaredLogger, db *store.Store) {
 	secret := randomSecret()
 	secretHash := sha256.Sum256(secret)
 	timelock := big.NewInt(1)
 	amount := big.NewInt(1000)
+
+	swapID := sha256.Sum256(append(secretHash[:], common.BytesToHash(aliceAddress.Bytes()).Bytes()...))
+	createSwap(t, db, hex.EncodeToString(swapID[:]), amount, secretHash[:])
 
 	sugar.Info("Initiating second HTLC (for refund)")
 	tx, err := htlc.Initiate(transactor, bobAddress, timelock, amount, secretHash)
@@ -314,6 +321,23 @@ func testInitiateAndRefund(t *testing.T, client *ethclient.Client, transactor *b
 	_, err = bind.WaitMined(context.Background(), client, tx)
 	require.NoError(t, err)
 	sugar.Info("Refund transaction mined")
+}
+
+func createSwap(t *testing.T, db *store.Store, swapID string, amount *big.Int, secretHash []byte) {
+	swap := &model.Swap{
+		SwapID:       swapID,
+		Amount:       model.BigInt{Int: amount},
+		Chain:        "ETH",
+		Asset:        "ETH",
+		Initiator:    "0x123",
+		Redeemer:     "0x456",
+		TimeLock:     model.BigInt{Int: big.NewInt(1)},
+		SecretHash:   secretHash,
+		FilledAmount: model.BigInt{Int: big.NewInt(0)},
+	}
+
+	err := db.CreateSwap(swap)
+	require.NoError(t, err)
 }
 
 func randomSecret() []byte {
