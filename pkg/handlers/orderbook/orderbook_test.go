@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -58,7 +59,7 @@ func TestWatcher(t *testing.T) {
 	err := w.Start(ctx)
 	assert.NoError(t, err)
 
-	testOrderbook(t, orderbook, transactor, aliceAddress, bobAddress, sugar)
+	testOrderbook(t, orderbook, transactor, client, aliceAddress, bobAddress, db, sugar)
 
 	sugar.Info("Test completed, stopping watcher")
 	w.Stop()
@@ -196,8 +197,8 @@ func getPrivateKey(t *testing.T, envVar string) *ecdsa.PrivateKey {
 }
 
 func deployOrderbook(t *testing.T, client *ethclient.Client, transactor *bind.TransactOpts, sugar *zap.SugaredLogger) (common.Address, *orderbook.Orderbook) {
-	sugar.Info("Deploying TestERC20 token")
-	orderbookAddr, tx, order, err := orderbook.DeployOrderbook(transactor, client)
+	sugar.Info("Deploying orderbook contract")
+	orderbookAddr, tx, orderbook, err := orderbook.DeployOrderbook(transactor, client)
 	require.NoError(t, err)
 	sugar.Infof("Orderbook deployment transaction sent: %s", tx.Hash().Hex())
 
@@ -205,10 +206,10 @@ func deployOrderbook(t *testing.T, client *ethclient.Client, transactor *bind.Tr
 	require.NoError(t, err)
 	sugar.Infof("Orderbook deployed at: %s", orderbookAddr.Hex())
 
-	return orderbookAddr, order
+	return orderbookAddr, orderbook
 }
 
-func testOrderbook(t *testing.T, orderbook *orderbook.Orderbook, transactor *bind.TransactOpts, aliceAddress, bobAddress common.Address, sugar *zap.SugaredLogger) {
+func testOrderbook(t *testing.T, orderbook *orderbook.Orderbook, transactor *bind.TransactOpts, client *ethclient.Client, aliceAddress, bobAddress common.Address, db *store.Store, sugar *zap.SugaredLogger) {
 	sugar.Info("Creating order")
 	secret := randomSecret()
 	createOrderTx, err := evm.PackCreateOrder(
@@ -232,6 +233,21 @@ func testOrderbook(t *testing.T, orderbook *orderbook.Orderbook, transactor *bin
 		orderbook.CreateOrder(transactor, createOrderTx)
 	require.NoError(t, err)
 	sugar.Infof("Create order transaction sent: %s", tx.Hash().Hex())
+
+	_, err = bind.WaitMined(context.Background(), client, tx)
+	require.NoError(t, err)
+
+	cid := sha256.Sum256(append(tx.Hash().Bytes()[:], secret[:]...))
+
+	for {
+		createOrder, err := db.ReadCreateOrder(hex.EncodeToString(cid[:]))
+		if err == nil {
+			sugar.Infof("Create order found: %s", createOrder.CreateID)
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
 }
 
 func setupWatcher(t *testing.T, client *ethclient.Client, orderbookAddr common.Address, logger *zap.Logger) *watcher.Watcher {

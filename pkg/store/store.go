@@ -101,3 +101,12 @@ func (s *Store) WriteCreateOrder(order *model.CreateOrder) error {
 	result := s.db.Create(order)
 	return result.Error
 }
+
+func (s *Store) ReadCreateOrder(createId string) (*model.CreateOrder, error) {
+	order := &model.CreateOrder{}
+	result := s.db.Where("create_id = ?", createId).First(order)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return order, nil
+}

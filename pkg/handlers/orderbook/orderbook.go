@@ -2,11 +2,13 @@ package orderbook
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 
 	"github.com/catalogfi/blockchain/evm"
-	"github.com/catalogfi/blockchain/evm/bindings/contracts/htlc/gardenhtlc"
+	ob "github.com/catalogfi/blockchain/evm/bindings/contracts/orderbook"
 	"github.com/catalogfi/garden-evm-watcher/pkg/model"
 	"github.com/catalogfi/garden-evm-watcher/pkg/store"
 	"github.com/catalogfi/garden-evm-watcher/pkg/watcher"
@@ -22,7 +24,7 @@ var (
 
 func OrderbookConfig(addr common.Address, ethClient *ethclient.Client) (watcher.ContractConfig, error) {
 	var err error
-	orderBookAbi, err = gardenhtlc.GardenHTLCMetaData.GetAbi()
+	orderBookAbi, err = ob.OrderbookMetaData.GetAbi()
 	if err != nil {
 		return watcher.ContractConfig{}, fmt.Errorf("failed to get ABI: %v", err)
 	}
@@ -47,26 +49,29 @@ func handleCreatedEvent(ctx context.Context, log types.Log) error {
 	if err != nil {
 		return err
 	}
-	createorder, err := evm.UnpackCreateOrder(log.Data)
+	createOrder, err := evm.UnpackCreateOrder(log.Data[96:])
 	if err != nil {
 		return fmt.Errorf("failed to unpack create order event: %v", err)
 	}
 
+	cid := sha256.Sum256(append(log.TxHash[:], createOrder.SecretHash[:]...))
+
 	return db.WriteCreateOrder(&model.CreateOrder{
+		CreateID:                    hex.EncodeToString(cid[:]),
 		BlockNumber:                 model.BigInt{Int: new(big.Int).SetUint64(log.BlockNumber)},
-		SourceChain:                 createorder.SourceChain,
-		DestinationChain:            createorder.DestinationChain,
-		SourceAsset:                 createorder.SourceAsset,
-		DestinationAsset:            createorder.DestinationAsset,
-		InitiatorSourceAddress:      createorder.InitiatorSourceAddress,
-		InitiatorDestinationAddress: createorder.InitiatorDestinationAddress,
-		SourceAmount:                model.BigInt{Int: createorder.SourceAmount},
-		DestinationAmount:           model.BigInt{Int: createorder.DestinationAmount},
-		Fee:                         model.BigInt{Int: createorder.Fee},
-		Nonce:                       model.BigInt{Int: createorder.Nonce},
-		MinDestinationConfirmations: createorder.MinDestinationConfirmations.Uint64(),
-		TimeLock:                    createorder.TimeLock.Uint64(),
-		SecretHash:                  createorder.SecretHash[:],
+		SourceChain:                 createOrder.SourceChain,
+		DestinationChain:            createOrder.DestinationChain,
+		SourceAsset:                 createOrder.SourceAsset,
+		DestinationAsset:            createOrder.DestinationAsset,
+		InitiatorSourceAddress:      createOrder.InitiatorSourceAddress,
+		InitiatorDestinationAddress: createOrder.InitiatorDestinationAddress,
+		SourceAmount:                model.BigInt{Int: createOrder.SourceAmount},
+		DestinationAmount:           model.BigInt{Int: createOrder.DestinationAmount},
+		Fee:                         model.BigInt{Int: createOrder.Fee},
+		Nonce:                       model.BigInt{Int: createOrder.Nonce},
+		MinDestinationConfirmations: createOrder.MinDestinationConfirmations.Uint64(),
+		TimeLock:                    createOrder.TimeLock.Uint64(),
+		SecretHash:                  createOrder.SecretHash[:],
 	})
 }
 
