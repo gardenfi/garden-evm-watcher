@@ -18,6 +18,16 @@ type Store struct {
 }
 
 func NewStore(db *gorm.DB) *Store {
+	err := db.AutoMigrate(
+		&model.CreateOrder{},
+		&model.FillOrder{},
+		&model.Swap{},
+		&model.MatchedOrder{},
+		&model.Strategy{},
+	)
+	if err != nil {
+		panic(err)
+	}
 	return &Store{db: db}
 }
 

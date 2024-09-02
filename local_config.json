@@ -1,0 +1,24 @@
+{
+        "psqlDb": "postgres://postgres:postgres@localhost:5433/garden",
+        "chains": {
+                "ethereum_localnet":{
+                        "contracts":{
+                                "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512":"gardenhtlc"
+                        },
+                        "url":"http://localhost:8545",
+                        "startBlock":0,
+                        "maxBlockSpan":1000,
+                        "pollingInterval":500
+                },
+                "arbitrum_localnet":{
+                        "contracts":{
+                                "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9":"gardenhtlc",
+                                "0x0165878A594ca255338adfa4d48449f69242Eb8F":"orderbook"
+                        },
+                        "url":"http://localhost:8546",
+                        "startBlock":0,
+                        "maxBlockSpan":1000,
+                        "pollingInterval":500
+                }
+        }
+}

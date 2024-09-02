@@ -3,6 +3,8 @@ package builder
 import (
 	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/catalogfi/garden-evm-watcher/cmd/config"
@@ -27,9 +29,7 @@ func RunWatcher(cfg config.Config) {
 	watcherCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	databaseUrl := os.Getenv("DATABASE_URL")
-
-	db, err := gorm.Open(postgres.Open(databaseUrl), &gorm.Config{})
+	db, err := gorm.Open(postgres.Open(cfg.PsqlDb), &gorm.Config{})
 	if err != nil {
 		panic(err)
 	}
@@ -51,6 +51,11 @@ func RunWatcher(cfg config.Config) {
 			}
 		}(w)
 	}
+
+	// waiting for system interrupt
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGKILL)
+	<-sigs
 }
 
 func setupWatchers(cfg config.Config, logger *zap.Logger) ([]*watcher.Watcher, error) {
