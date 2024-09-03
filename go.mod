@@ -1,4 +1,4 @@
-module github.com/catalogfi/garden-evm-watcher
+module github.com/gardenfi/garden-evm-watcher
 
 go 1.22.5
 

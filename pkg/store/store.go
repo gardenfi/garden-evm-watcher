@@ -5,7 +5,7 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/catalogfi/garden-evm-watcher/pkg/model"
+	"github.com/gardenfi/garden-evm-watcher/pkg/model"
 	"gorm.io/gorm"
 )
 

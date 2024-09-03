@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/catalogfi/garden-evm-watcher/cmd/builder"
-	"github.com/catalogfi/garden-evm-watcher/cmd/config"
+	"github.com/gardenfi/garden-evm-watcher/cmd/builder"
+	"github.com/gardenfi/garden-evm-watcher/cmd/config"
 )
 
 func main() {

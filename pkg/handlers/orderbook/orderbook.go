@@ -9,13 +9,13 @@ import (
 
 	"github.com/catalogfi/blockchain/evm"
 	ob "github.com/catalogfi/blockchain/evm/bindings/contracts/orderbook"
-	"github.com/catalogfi/garden-evm-watcher/pkg/model"
-	"github.com/catalogfi/garden-evm-watcher/pkg/store"
-	"github.com/catalogfi/garden-evm-watcher/pkg/watcher"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/gardenfi/garden-evm-watcher/pkg/model"
+	"github.com/gardenfi/garden-evm-watcher/pkg/store"
+	"github.com/gardenfi/garden-evm-watcher/pkg/watcher"
 )
 
 var (

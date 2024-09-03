@@ -7,13 +7,13 @@ import (
 	"math/big"
 
 	"github.com/catalogfi/blockchain/evm/bindings/contracts/htlc/gardenhtlc"
-	"github.com/catalogfi/garden-evm-watcher/pkg/store"
-	"github.com/catalogfi/garden-evm-watcher/pkg/watcher"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/gardenfi/garden-evm-watcher/pkg/store"
+	"github.com/gardenfi/garden-evm-watcher/pkg/watcher"
 )
 
 var (
