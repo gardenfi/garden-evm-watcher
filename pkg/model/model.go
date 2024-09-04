@@ -5,94 +5,105 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"time"
 
 	"gorm.io/gorm"
 )
 
 type Strategy struct {
-	gorm.Model
-	Filler             string   `gorm:"type:text;not null"`
-	SourceChainAddress string   `gorm:"type:text;not null"`
-	DestChainAddress   string   `gorm:"type:text;not null"`
-	SourceChain        string   `gorm:"type:text;not null"`
-	DestChain          string   `gorm:"type:text;not null"`
-	SourceAsset        string   `gorm:"type:text;not null"`       // whitelisted source assets, nil means allowing any asset
-	DestAsset          string   `gorm:"type:text;not null"`       // whitelisted destination assets, nil means allowing any asset
-	Makers             []string `gorm:"type:text[]"`              // whitelisted makers, nil means allowing any maker
-	MinAmount          BigInt   `gorm:"type:decimal;not null"`    // minimum amount
-	MaxAmount          BigInt   `gorm:"type:decimal" default:"0"` // maximum amount
-	MinSourceTimeLock  uint64   `gorm:"type:integer;not null"`    // minimum time lock
-	MinPrice           float64  `gorm:"type:real;not null"`       // minimum price
-	Fee                uint64   `gorm:"type:integer;not null"`    // fee in basis points
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          gorm.DeletedAt `gorm:"index"`
+	Filler             string         `gorm:"type:text;not null"`
+	SourceChainAddress string         `gorm:"type:text;not null"`
+	DestChainAddress   string         `gorm:"type:text;not null"`
+	SourceChain        string         `gorm:"type:text;not null"`
+	DestChain          string         `gorm:"type:text;not null"`
+	SourceAsset        string         `gorm:"type:text;not null"`       // whitelisted source assets, nil means allowing any asset
+	DestAsset          string         `gorm:"type:text;not null"`       // whitelisted destination assets, nil means allowing any asset
+	Makers             []string       `gorm:"type:text[]"`              // whitelisted makers, nil means allowing any maker
+	MinAmount          BigInt         `gorm:"type:decimal;not null"`    // minimum amount
+	MaxAmount          BigInt         `gorm:"type:decimal" default:"0"` // maximum amount
+	MinSourceTimeLock  uint64         `gorm:"type:integer;not null"`    // minimum time lock
+	MinPrice           float64        `gorm:"type:real;not null"`       // minimum price
+	Fee                uint64         `gorm:"type:integer;not null"`    // fee in basis points
 }
 
 type CreateOrder struct {
-	gorm.Model
-	CreateID                    string `gorm:"type:text;not null"`
-	BlockNumber                 BigInt `gorm:"type:decimal;not null"`
-	SourceChain                 string `gorm:"type:text;not null"`
-	DestinationChain            string `gorm:"type:text;not null"`
-	SourceAsset                 string `gorm:"type:text;not null"`
-	DestinationAsset            string `gorm:"type:text;not null"`
-	InitiatorSourceAddress      string `gorm:"type:text;not null"`
-	InitiatorDestinationAddress string `gorm:"type:text;not null"`
-	SourceAmount                BigInt `gorm:"type:decimal;not null"`
-	DestinationAmount           BigInt `gorm:"type:decimal;not null"`
-	Fee                         BigInt `gorm:"type:decimal;not null"`
-	Nonce                       BigInt `gorm:"type:decimal;not null"`
-	MinDestinationConfirmations uint64 `gorm:"type:integer;not null"`
-	TimeLock                    uint64 `gorm:"type:integer;not null"`
-	SecretHash                  []byte `gorm:"type:bytea;not null"`
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	DeletedAt                   gorm.DeletedAt `gorm:"index"`
+	CreateID                    string         `gorm:"type:text;primaryKey;not null"`
+	BlockNumber                 BigInt         `gorm:"type:decimal;not null"`
+	SourceChain                 string         `gorm:"type:text;not null"`
+	DestinationChain            string         `gorm:"type:text;not null"`
+	SourceAsset                 string         `gorm:"type:text;not null"`
+	DestinationAsset            string         `gorm:"type:text;not null"`
+	InitiatorSourceAddress      string         `gorm:"type:text;not null"`
+	InitiatorDestinationAddress string         `gorm:"type:text;not null"`
+	SourceAmount                BigInt         `gorm:"type:decimal;not null"`
+	DestinationAmount           BigInt         `gorm:"type:decimal;not null"`
+	Fee                         BigInt         `gorm:"type:decimal;not null"`
+	Nonce                       BigInt         `gorm:"type:decimal;not null"`
+	MinDestinationConfirmations uint64         `gorm:"type:integer;not null"`
+	TimeLock                    uint64         `gorm:"type:integer;not null"`
+	SecretHash                  []byte         `gorm:"type:bytea;not null"`
 }
 
 type FillOrder struct {
-	gorm.Model
-	FillID                     string `gorm:"type:text;not null"`
-	BlockTimestamp             BigInt `gorm:"type:decimal;not null"`
-	SourceChain                string `gorm:"type:text;not null"`
-	DestinationChain           string `gorm:"type:text;not null"`
-	SourceAsset                string `gorm:"type:text;not null"`
-	DestinationAsset           string `gorm:"type:text;not null"`
-	RedeemerSourceAddress      string `gorm:"type:text;not null"`
-	RedeemerDestinationAddress string `gorm:"type:text;not null"`
-	SourceAmount               BigInt `gorm:"type:decimal;not null"`
-	DestinationAmount          BigInt `gorm:"type:decimal;not null"`
-	Fee                        BigInt `gorm:"type:decimal;not null"`
-	Nonce                      BigInt `gorm:"type:decimal;not null"`
-	MinSourceConfirmations     uint64 `gorm:"type:integer;not null"`
-	TimeLock                   uint64 `gorm:"type:integer;not null"`
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+	DeletedAt                  gorm.DeletedAt `gorm:"index"`
+	FillID                     string         `gorm:"type:text;primaryKey;not null"`
+	BlockTimestamp             BigInt         `gorm:"type:decimal;not null"`
+	SourceChain                string         `gorm:"type:text;not null"`
+	DestinationChain           string         `gorm:"type:text;not null"`
+	SourceAsset                string         `gorm:"type:text;not null"`
+	DestinationAsset           string         `gorm:"type:text;not null"`
+	RedeemerSourceAddress      string         `gorm:"type:text;not null"`
+	RedeemerDestinationAddress string         `gorm:"type:text;not null"`
+	SourceAmount               BigInt         `gorm:"type:decimal;not null"`
+	DestinationAmount          BigInt         `gorm:"type:decimal;not null"`
+	Fee                        BigInt         `gorm:"type:decimal;not null"`
+	Nonce                      BigInt         `gorm:"type:decimal;not null"`
+	MinSourceConfirmations     uint64         `gorm:"type:integer;not null"`
+	TimeLock                   uint64         `gorm:"type:integer;not null"`
 }
 
 type MatchedOrder struct {
-	gorm.Model
-	CreateOrderID     string      `gorm:"type:text;not null"`
-	FillOrderID       string      `gorm:"type:text;not null"`
-	SourceSwapID      string      `gorm:"type:text;not null"`
-	DestinationSwapID string      `gorm:"type:text;not null"`
-	SourceSwap        Swap        `gorm:"foreignKey:SourceSwapID;references:SwapID"`
-	DestinationSwap   Swap        `gorm:"foreignKey:DestinationSwapID;references:SwapID"`
-	CreateOrder       CreateOrder `gorm:"foreignKey:CreateOrderID;references:CreateID"`
-	FillOrder         FillOrder   `gorm:"foreignKey:FillOrderID;references:FillID"`
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         gorm.DeletedAt `gorm:"index"`
+	CreateOrderID     string         `gorm:"type:text;not null"`
+	FillOrderID       string         `gorm:"type:text;not null"`
+	SourceSwapID      string         `gorm:"type:text;not null"`
+	DestinationSwapID string         `gorm:"type:text;not null"`
+	SourceSwap        Swap           `gorm:"foreignKey:SourceSwapID;references:SwapID"`
+	DestinationSwap   Swap           `gorm:"foreignKey:DestinationSwapID;references:SwapID"`
+	CreateOrder       CreateOrder    `gorm:"foreignKey:CreateOrderID;references:CreateID"`
+	FillOrder         FillOrder      `gorm:"foreignKey:FillOrderID;references:FillID"`
 }
 
 type Swap struct {
-	gorm.Model
-	SwapID              string `gorm:"type:text;not null"`
-	Chain               string `gorm:"type:text;not null"`
-	Asset               string `gorm:"type:text;not null"`
-	Initiator           string `gorm:"type:text;not null"`
-	Redeemer            string `gorm:"type:text;not null"`
-	TimeLock            BigInt `gorm:"type:decimal;not null"`
-	FilledAmount        BigInt `gorm:"type:decimal;not null"`
-	Amount              BigInt `gorm:"type:decimal;not null"`
-	SecretHash          []byte `gorm:"type:bytea;not null"`
-	Secret              []byte `gorm:"type:bytea"`
-	InitiateTxHash      string `gorm:"type:text"`
-	RedeemTxHash        string `gorm:"type:text"`
-	RefundTxHash        string `gorm:"type:text"`
-	InitiateBlockNumber BigInt `gorm:"type:decimal" default:"0"`
-	RedeemBlockNumber   BigInt `gorm:"type:decimal" default:"0"`
-	RefundBlockNumber   BigInt `gorm:"type:decimal" default:"0"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	DeletedAt           gorm.DeletedAt `gorm:"index"`
+	SwapID              string         `gorm:"type:text;primaryKey;not null"`
+	Chain               string         `gorm:"type:text;not null"`
+	Asset               string         `gorm:"type:text;not null"`
+	Initiator           string         `gorm:"type:text;not null"`
+	Redeemer            string         `gorm:"type:text;not null"`
+	TimeLock            BigInt         `gorm:"type:decimal;not null"`
+	FilledAmount        BigInt         `gorm:"type:decimal;not null"`
+	Amount              BigInt         `gorm:"type:decimal;not null"`
+	SecretHash          []byte         `gorm:"type:bytea;not null"`
+	Secret              []byte         `gorm:"type:bytea"`
+	InitiateTxHash      string         `gorm:"type:text"`
+	RedeemTxHash        string         `gorm:"type:text"`
+	RefundTxHash        string         `gorm:"type:text"`
+	InitiateBlockNumber BigInt         `gorm:"type:decimal" default:"0"`
+	RedeemBlockNumber   BigInt         `gorm:"type:decimal" default:"0"`
+	RefundBlockNumber   BigInt         `gorm:"type:decimal" default:"0"`
 }
 
 type BigInt struct {
