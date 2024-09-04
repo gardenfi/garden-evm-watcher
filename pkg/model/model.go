@@ -65,10 +65,14 @@ type FillOrder struct {
 
 type MatchedOrder struct {
 	gorm.Model
-	CreateOrderID     string      `gorm:"type:text;not null"`
-	FillOrderID       string      `gorm:"type:text;not null"`
-	SourceSwapID      string      `gorm:"type:text;not null"`
-	DestinationSwapID string      `gorm:"type:text;not null"`
+	CreateOrderID     uint
+	FillOrderID       uint
+	SourceSwapID      uint
+	DestinationSwapID uint
+	CreateID          string      `gorm:"type:text;not null"`
+	FillID            string      `gorm:"type:text;not null"`
+	SourceID          string      `gorm:"type:text;not null"`
+	DestinationID     string      `gorm:"type:text;not null"`
 	SourceSwap        Swap        `gorm:"foreignKey:SourceSwapID"`
 	DestinationSwap   Swap        `gorm:"foreignKey:DestinationSwapID"`
 	CreateOrder       CreateOrder `gorm:"foreignKey:CreateOrderID"`
