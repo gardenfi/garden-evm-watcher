@@ -38,5 +38,5 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   push: true
                   tags: |
-                      ghcr.io/catalogfi/matcher:latest
-                      ghcr.io/catalogfi/matcher:${{ steps.version_tag.outputs.tag }}
+                      ghcr.io/gardenfi/garden-evm-watcher:latest
+                      ghcr.io/gardenfi/garden-evm-watcher:${{ steps.version_tag.outputs.tag }}
